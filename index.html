@@ -279,7 +279,7 @@ const camera=new THREE.PerspectiveCamera(65,innerWidth/innerHeight,.06,180);came
 const stereoCam=new THREE.StereoCamera();stereoCam.eyeSep=.064;
 const vrConfig={ipd:.064,fov:65,dwell:1.6,manualTrigger:true};
 const desiredGyro=new THREE.Quaternion();let gyroHasQuat=false;
-const handUI={trail:[],gripX:0,gripY:0,gripReady:false,lastHoverTool:null,lastHoverAt:0,x:0,y:0,ready:false,pinchFrames:0,releaseFrames:0,pinchStart:null,lastGesture:0,drag:false,prevX:0,prevY:0,facing:'environment',hover:'',trackedWrist:null,walkConfidence:0};
+const handUI={trail:[],gripX:0,gripY:0,gripReady:false,lastHoverTool:null,lastHoverAt:0,x:0,y:0,ready:false,pinchFrames:0,releaseFrames:0,pinchStart:null,lastGesture:0,drag:false,prevX:0,prevY:0,facing:'user',hover:'',trackedWrist:null,walkConfidence:0};
 
 const clock=new THREE.Clock();const ray=new THREE.Raycaster();const mouseNdc=new THREE.Vector2();const look={yaw:0,pitch:-.06};
 const move={x:0,y:0};const keys=new Set();let joystickId=null,lookId=null,lastPointer={x:0,y:0},pointerDown={x:0,y:0,time:0},dragTool=null,lastMonitor=0,lastUI=0,lastFpsT=0,frames=0;let elapsed=0;
@@ -2584,7 +2584,7 @@ function onOrientation(ev){
  // Posición relativa al frente inicial, NO suma de deltas: evita deriva y el efecto de cámara flotante.
  let headingOffset=Math.atan2(Math.sin(heading-monoYawZero),Math.cos(heading-monoYawZero));
  if(Math.abs(headingOffset)<stableGyro.deadzone)headingOffset=0;
- const targetYaw=limitLookYaw(monoYawBase-headingOffset*.88);
+ const targetYaw=limitLookYaw(monoYawBase+headingOffset*.88);
  const targetPitch=limitLookPitch(-.065+(vertical-viewLimits.zeroPitch)*.79);
  if(state.mode==='hands'){
   monoYawTarget=targetYaw;viewLimits.targetPitch=targetPitch;
@@ -2722,7 +2722,7 @@ function startCarry(id,hand){
  // El objeto es parte del grupo original del guante que efectivamente lo agarró.
  const parent=gestureCarry.side==='left'?fpLeftHandGroup:fpRightHandGroup;
  parent?.add(fpToolContainer);
- showToast('🤏 Sujetando '+toolSpecs[id].title+' · lleva la mano a la zona luminosa y abre los dedos',2.4);
+ showToast('🤏 Sujetando '+toolSpecs[id].title+' · camina hacia el paciente y abre la palma sobre la marca luminosa',2.4);
  return true;
 }
 function carryTargetNear(id,x,y){
@@ -3011,7 +3011,7 @@ function onHandsDetected(results){
  if(state.finished||state.mode!=='hands')return;
  const landmarks=results.multiHandLandmarks||[];
  liveUpdateBothHands(results);
- if(!landmarks.length){if(gestureCarry.id&&performance.now()-gestureCarry.lastSeen>12000)resetCarry(true);state.pinchHeld=false;handUI.pinchFrames=0;handUI.releaseFrames=0;handUI.pinchStart=null;handUI.ready=false;handUI.gripReady=false;state.handSeen=false;state.handMove.turn=0;handUI.walkConfidence=0;drawHands(null);handHint(gestureCarry.id?'No pierdas la mano del encuadre para mantener el instrumento':'Muestra una mano abierta ante la cámara');UI.cameraNote.textContent='Buscando mano · mejora la iluminación y evita contraluz';return;}
+ if(!landmarks.length){if(gestureCarry.id&&performance.now()-gestureCarry.lastSeen>12000)resetCarry(true);state.pinchHeld=false;handUI.pinchFrames=0;handUI.releaseFrames=0;handUI.pinchStart=null;handUI.ready=false;handUI.gripReady=false;state.handSeen=false;state.handMove.turn=0;handUI.walkConfidence=0;drawHands(null);handHint(gestureCarry.id?'No pierdas la mano del encuadre para mantener el instrumento':'Cámara frontal: coloca toda la mano dentro del recuadro, a 30–60 cm');UI.cameraNote.textContent='Buscando mano · usa la cámara frontal, coloca toda la palma dentro del recuadro y separa los dedos';return;}
  let best=landmarks[0];
  if(handUI.trackedWrist&&landmarks.length>1)best=landmarks.reduce((a,b)=>Math.hypot(b[0].x-handUI.trackedWrist.x,b[0].y-handUI.trackedWrist.y)<Math.hypot(a[0].x-handUI.trackedWrist.x,a[0].y-handUI.trackedWrist.y)?b:a);
  if(gestureCarry.id&&landmarks.length>1){
@@ -3057,12 +3057,19 @@ function onHandsDetected(results){
   // Sin giro accidental de cámara por gestos.
   handUI.prevX=state.tip.x;handUI.prevY=state.tip.y;
  }
+ // Palma abierta sostenida: aplicar el instrumento sólo cerca del objetivo marcado.
+ // No exigir que la mano permanezca en pinza durante todo el recorrido.
+ if(gestureCarry.id && gestureCarry.openFrames>=6 && performance.now()-handUI.lastGesture>650){
+   const targetOK=carryTargetNear(gestureCarry.id,handUI.gripX,handUI.gripY)||carryTargetNear(gestureCarry.id,state.tip.x,state.tip.y);
+   if(targetOK){handUI.lastGesture=performance.now();gestureCarry.openFrames=0;dropCarry(handUI.gripX,handUI.gripY);state.pinchHeld=false;handUI.pinchStart=null;}
+   else if(gestureCarry.openFrames===6){handHint('Instrumento sujeto: acércate al paciente y abre la mano sobre la marca luminosa');}
+ }
  if(state.pinchHeld&&handUI.releaseFrames>=4){
   const start=handUI.pinchStart,wasDragging=handUI.drag;
   const settled=Math.hypot(state.tip.x-(start?.x||state.tip.x),state.tip.y-(start?.y||state.tip.y))<26;
   state.pinchHeld=false;handUI.pinchStart=null;handUI.drag=false;
   if(gestureCarry.id){
-   if(nearTarget)dropCarry(handUI.gripX,handUI.gripY);
+   if(nearTarget && handPalmFullyOpen(best))dropCarry(handUI.gripX,handUI.gripY);
    // Lejos del paciente, abrir ligeramente los dedos no debe perder el instrumento.
    // Palma totalmente abierta durante unos fotogramas = devolver a bandeja.
   }else if(start&&!wasDragging&&settled&&performance.now()-start.time<1800&&performance.now()-handUI.lastGesture>420){
@@ -3173,7 +3180,7 @@ async function enableHands(preflight=false){
     state.handDetector=detector;
     state.hands=true;state.cameraError='';state.handSeen=false;
     UI.cameraNote.textContent='✅ Cámara y detector activos · Señala con el índice';
-    handHint('Índice para apuntar · pinza para coger');
+    handHint('Acércate a la mesa · apunta al instrumento · une índice y pulgar para coger · abre la mano sobre la marca del paciente');
     controlStatus('Cámara y detección de manos listas.','ok');
     return true;
    }catch(detectorError){
