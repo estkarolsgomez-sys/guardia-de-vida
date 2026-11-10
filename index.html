@@ -2981,11 +2981,11 @@ function updatePhysicalWalking(dt){
  }
  const target=walking&&state.stage!=='outside'?(walkingSensor.reverse?-.88:.88):0;
  state.handMove.y+= (target-state.handMove.y)*Math.min(1,dt*(walking?7.5:11));
- state.handMove.active=state.handMove.y>.025;
+ state.handMove.active=Math.abs(state.handMove.y)>.025;
  state.handMove.x=0;state.handMove.turn=0;
  if(performance.now()-(walkingSensor.lastDisplay||0)>600){
   walkingSensor.lastDisplay=performance.now();
-  const txt=walkingSensor.readings?('🚶 '+(state.stage==='outside'?'Camino: '+walkingSensor.outdoorSteps+'/3 pasos': 'Pasos: '+walkingSensor.steps+(walkingSensor.reverse?' · RETROCEDER':' · AVANZAR'))+(walking?' · AVANZANDO':' · quieto')):'🚶 Sin datos de pasos · revisa permisos';
+  const txt=walkingSensor.readings?('🚶 '+(state.stage==='outside'?'Camino: '+walkingSensor.outdoorSteps+'/3 pasos': 'Pasos: '+walkingSensor.steps+(walkingSensor.reverse?' · RETROCEDER':' · AVANZAR'))+(walking?(walkingSensor.reverse?' · RETROCEDIENDO':' · AVANZANDO'):' · quieto')):'🚶 Sin datos de pasos · revisa permisos; también puedes usar joystick o teclado';
   const a=$('walkStatus'),b=$('walkMobileStatus');if(a)a.textContent=txt;if(b)b.textContent=txt;
  }
 }
@@ -3011,7 +3011,7 @@ function onHandsDetected(results){
  if(state.finished||state.mode!=='hands')return;
  const landmarks=results.multiHandLandmarks||[];
  liveUpdateBothHands(results);
- if(!landmarks.length){if(gestureCarry.id&&performance.now()-gestureCarry.lastSeen>3500)resetCarry(true);state.pinchHeld=false;handUI.pinchFrames=0;handUI.releaseFrames=0;handUI.pinchStart=null;handUI.ready=false;handUI.gripReady=false;state.handSeen=false;state.handMove.turn=0;handUI.walkConfidence=0;drawHands(null);handHint(gestureCarry.id?'No pierdas la mano del encuadre para mantener el instrumento':'Muestra una mano abierta ante la cámara');UI.cameraNote.textContent='Buscando mano · mejora la iluminación y evita contraluz';return;}
+ if(!landmarks.length){if(gestureCarry.id&&performance.now()-gestureCarry.lastSeen>12000)resetCarry(true);state.pinchHeld=false;handUI.pinchFrames=0;handUI.releaseFrames=0;handUI.pinchStart=null;handUI.ready=false;handUI.gripReady=false;state.handSeen=false;state.handMove.turn=0;handUI.walkConfidence=0;drawHands(null);handHint(gestureCarry.id?'No pierdas la mano del encuadre para mantener el instrumento':'Muestra una mano abierta ante la cámara');UI.cameraNote.textContent='Buscando mano · mejora la iluminación y evita contraluz';return;}
  let best=landmarks[0];
  if(handUI.trackedWrist&&landmarks.length>1)best=landmarks.reduce((a,b)=>Math.hypot(b[0].x-handUI.trackedWrist.x,b[0].y-handUI.trackedWrist.y)<Math.hypot(a[0].x-handUI.trackedWrist.x,a[0].y-handUI.trackedWrist.y)?b:a);
  if(gestureCarry.id&&landmarks.length>1){
@@ -3030,7 +3030,7 @@ function onHandsDetected(results){
  if(!handUI.gripReady){handUI.gripX=gxs;handUI.gripY=gys;handUI.gripReady=true;}else{const dd=Math.hypot(gxs-handUI.gripX,gys-handUI.gripY),a=Math.min(.75,.28+dd/260);handUI.gripX+=(gxs-handUI.gripX)*a;handUI.gripY+=(gys-handUI.gripY)*a;}
  const carryNow=!!gestureCarry.id;
  const nearTarget=carryNow&&(carryTargetNear(gestureCarry.id,handUI.gripX,handUI.gripY)||carryTargetNear(gestureCarry.id,state.tip.x,state.tip.y));
- const touching=gap<(state.pinchHeld?(carryNow&&!nearTarget?1.05:.78):.58);
+ const touching=gap<(state.pinchHeld?.82:.68);
  if(gestureCarry.id && !touching && handPalmFullyOpen(best))gestureCarry.openFrames++;
  else gestureCarry.openFrames=0;
  drawHands(best);
@@ -3057,7 +3057,7 @@ function onHandsDetected(results){
   // Sin giro accidental de cámara por gestos.
   handUI.prevX=state.tip.x;handUI.prevY=state.tip.y;
  }
- if(state.pinchHeld&&handUI.releaseFrames>=(carryNow&&!nearTarget?7:3)){
+ if(state.pinchHeld&&handUI.releaseFrames>=4){
   const start=handUI.pinchStart,wasDragging=handUI.drag;
   const settled=Math.hypot(state.tip.x-(start?.x||state.tip.x),state.tip.y-(start?.y||state.tip.y))<26;
   state.pinchHeld=false;handUI.pinchStart=null;handUI.drag=false;
@@ -3075,12 +3075,12 @@ function onHandsDetected(results){
   if(gestureCarry.id&&!state.pinchHeld&&nearTarget&&handUI.releaseFrames>=4)dropCarry(handUI.gripX,handUI.gripY);
   if(gestureCarry.id && !state.pinchHeld && gestureCarry.openFrames>=14){
    if(nearTarget)dropCarry(handUI.gripX,handUI.gripY);
-   else discardCarry();
+   else {gestureCarry.openFrames=0;handHint('Instrumento sostenido: acércalo al paciente y abre los dedos en la zona correcta',true);}
   }
   $('handCursor').classList.toggle('pinched',state.pinchHeld);
  const walkingNow=state.handMove.active&&state.handMove.y>.12;
  const msg=gestureCarry.id?(nearTarget?'✓ Zona correcta · abre los dedos para colocar':'Sujetando '+toolSpecs[gestureCarry.id].title+' · mantén la palma abierta 1 s para devolverlo'):(state.pinchHeld?'Pinza detectada · mueve el guante hacia el instrumento':(walkingNow?'Pasos detectados · avanzando':'Señala un instrumento y pellizca para cogerlo'));
- handHint(msg,true);UI.cameraNote.textContent=gestureCarry.id?'Sobre paciente: abre dedos para aplicar · fuera: abre toda la palma para devolverlo a la bandeja':(state.pinchHeld?'Gesto de pinza reconocido':(walkingNow?'Movimiento detectado · avanzando':'Cámara trasera · apunta, pellizca, transporta y suelta'));
+ handHint(msg,true);UI.cameraNote.textContent=gestureCarry.id?'Sobre paciente: abre dedos para aplicar · fuera: abre toda la palma para devolverlo a la bandeja':(state.pinchHeld?'Gesto de pinza reconocido':(walkingNow?'Movimiento detectado · avanzando':'Apunta, une pulgar e índice para coger, transporta y separa los dedos junto al paciente'));
 }
 
 let handsScriptPromise=null,handsCdn='https://cdn.jsdelivr.net/npm/@mediapipe/hands/';
@@ -3151,7 +3151,7 @@ async function enableHands(preflight=false){
  const sequence=++state.handRequest;
  UI.video.style.transform=handUI.facing==='user'?'scaleX(-1)':'none';
  UI.cameraPreview.hidden=false;
- UI.cameraNote.textContent='Activando cámara TRASERA… coloca la mano frente a la lente posterior.';
+ UI.cameraNote.textContent='Activando cámara… muestra la mano frente a la lente seleccionada.';
  const run=async()=>{
   let stream;
   try{
@@ -3168,7 +3168,7 @@ async function enableHands(preflight=false){
     if(sequence!==state.handRequest||state.mode!=='hands')return false;
     if(!window.Hands)throw new Error('MediaPipe no disponible');
     const detector=new window.Hands({locateFile:f=>handsCdn+f});
-    detector.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:.5,minTrackingConfidence:.5});
+    detector.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:.55,minTrackingConfidence:.55});
     detector.onResults(onHandsDetected);
     state.handDetector=detector;
     state.hands=true;state.cameraError='';state.handSeen=false;
