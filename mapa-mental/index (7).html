@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Guardia de Vida · Mapa mental interactivo</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#05070d;color:#e8f1ff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}
+  #bar{position:fixed;top:0;left:0;right:0;display:flex;gap:8px;padding:10px;z-index:20;flex-wrap:wrap}
+  .btn{background:#101a2e;color:#e8f1ff;border:1px solid #27406e;border-radius:12px;padding:10px 14px;font-size:15px;cursor:pointer}
+  .btn:hover,.btn.hs-hover{background:#1b2c4d}
+  #stage{position:fixed;inset:0;touch-action:none}
+  svg#lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  svg#lines line{stroke:#27406e;stroke-width:3;stroke-linecap:round}
+  .node{position:absolute;transform:translate(-50%,-50%);border-radius:22px;padding:16px 22px;font-size:20px;font-weight:700;
+        background:#0f1b33;border:2px solid #2d5aa8;cursor:pointer;user-select:none;text-align:center;
+        box-shadow:0 0 18px rgba(45,90,168,.35);transition:transform .15s,background .15s}
+  .node:hover,.node.hs-hover{background:#183056;transform:translate(-50%,-50%) scale(1.08)}
+  .node.center{background:#12351f;border-color:#2fbf6b;box-shadow:0 0 22px rgba(47,191,107,.4);font-size:22px;cursor:default}
+  .node.sub{font-size:15px;padding:10px 14px;border-radius:16px;border-color:#7a5cff;box-shadow:0 0 14px rgba(122,92,255,.35)}
+  .node .e{display:block;font-size:34px;margin-bottom:4px}
+  #hint{position:fixed;left:0;right:0;bottom:14px;text-align:center;font-size:14px;color:#9db4d8;z-index:20;pointer-events:none;padding:0 150px 0 12px}
+  .win{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,520px);max-height:70vh;overflow:auto;
+       background:#0c1426;border:2px solid #2d5aa8;border-radius:18px;padding:18px;z-index:30;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+  .win h2{margin:0 0 8px;font-size:22px}
+  .win p{margin:6px 0;line-height:1.45;color:#c9d9f5}
+  .win ul{padding-left:20px;margin:8px 0}
+  .win li{margin:4px 0}
+  .win .close{float:right}
+  #notes{width:100%;min-height:140px;background:#07101f;color:#e8f1ff;border:1px solid #27406e;border-radius:10px;padding:10px;font-size:16px}
+  #kb{position:fixed;left:0;right:0;bottom:0;background:#0c1426;border-top:2px solid #2d5aa8;padding:10px;z-index:40;display:none}
+  #kb .row{display:flex;justify-content:center;gap:6px;margin:5px 0}
+  #kb .k{min-width:34px;padding:12px 8px;background:#14233f;border:1px solid #27406e;border-radius:8px;color:#fff;font-size:17px;cursor:pointer;text-align:center}
+  #kb .k:hover,#kb .k.hs-hover{background:#244a86}
+  #intro{position:fixed;inset:0;background:#05070d;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+  #intro h1{font-size:30px;margin:0 0 10px}
+  #intro p{max-width:420px;color:#9db4d8}
+</style>
+</head>
+<body>
+
+<div id="intro">
+  <h1># Guardia de Vida · Mapa mental</h1>
+  <p>Abre ventanas informativas señalando con la mano (☝ señala y 🤏 pellizca) o tocando la pantalla.</p>
+  <button class="btn" id="start" style="margin-top:18px;font-size:18px">Comenzar mapa mental</button>
+</div>
+
+<div id="bar">
+  <button class="btn" id="bTemas">＋ Temas</button>
+  <button class="btn" id="bNotas">⌨ Notas</button>
+  <button class="btn" id="bCentrar">⊙ Centrar</button>
+  <button class="btn" id="bCerrar">Cerrar todo</button>
+</div>
+
+<div id="stage"><svg id="lines"></svg></div>
+<div id="hint">☝ Señala un tema y 🤏 pellizca para abrir · También puedes tocar o hacer clic</div>
+<div id="kb"></div>
+
+<script>
+/* ===================== CONTENIDO (edítalo a tu gusto) ===================== */
+var TEMAS = [
+  { id:'inicio',   e:'🏥', t:'Inicio',   d:'Punto de partida de la guardia: llegada, organización del turno y reglas básicas.',
+    sub:['Llegada y turno','Prioridades del día','Reglas básicas'] },
+  { id:'hospital', e:'🏨', t:'Hospital', d:'Áreas y recursos del hospital donde transcurre la guardia.',
+    sub:['Urgencias','Quirófano','Farmacia','Laboratorio'] },
+  { id:'bandeja',  e:'🩺', t:'Bandeja',  d:'Instrumental y materiales que necesitas a mano para atender.',
+    sub:['Estetoscopio','Tensiómetro','Jeringas','Guantes'] },
+  { id:'paciente', e:'👩‍⚕️', t:'Paciente', d:'Atención, evaluación y seguimiento de cada paciente.',
+    sub:['Signos vitales','Historia clínica','Diagnóstico','Tratamiento'] }
+];
+/* ========================================================================= */
+
+var stage = document.getElementById('stage');
+var svg = document.getElementById('lines');
+var nodes = [], wins = [], subNodes = [];
+var mapX = 0, mapY = 0;
+
+function el(tag, cls, html){ var x=document.createElement(tag); if(cls) x.className=cls; if(html!=null) x.innerHTML=html; return x; }
+function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+function layout(){
+  var W=innerWidth,H=innerHeight, cx=W/2+mapX, cy=H/2+mapY, r=Math.min(W,H)*0.32;
+  svg.innerHTML='';
+  center.style.left=cx+'px'; center.style.top=cy+'px';
+  nodes.forEach(function(n,i){
+    var a=-Math.PI/2+i*2*Math.PI/nodes.length;
+    var x=cx+Math.cos(a)*r*(W>H?1.35:1), y=cy+Math.sin(a)*r;
+    n.el.style.left=x+'px'; n.el.style.top=y+'px'; n.x=x; n.y=y;
+    line(cx,cy,x,y);
+  });
+  subNodes.forEach(function(s){
+    var p=s.parent, a=s.angle;
+    var x=p.x+Math.cos(a)*s.dist, y=p.y+Math.sin(a)*s.dist;
+    s.el.style.left=x+'px'; s.el.style.top=y+'px';
+    line(p.x,p.y,x,y);
+  });
+}
+function line(x1,y1,x2,y2){
+  var l=document.createElementNS('http://www.w3.org/2000/svg','line');
+  l.setAttribute('x1',x1);l.setAttribute('y1',y1);l.setAttribute('x2',x2);l.setAttribute('y2',y2);
+  svg.appendChild(l);
+}
+
+var center = el('div','node center','GUARDIA DE VIDA');
+stage.appendChild(center);
+
+TEMAS.forEach(function(t){
+  var n=el('div','node','<span class="e">'+t.e+'</span>'+esc(t.t));
+  n.onclick=function(){ openWin(t); toggleSubs(obj); };
+  stage.appendChild(n);
+  var obj={el:n,tema:t,open:false,subs:[]};
+  nodes.push(obj);
+});
+
+function toggleSubs(obj){
+  if(obj.open){ return; }
+  obj.open=true;
+  var base=Math.atan2(obj.y-(innerHeight/2+mapY), obj.x-(innerWidth/2+mapX));
+  var n=obj.tema.sub.length;
+  obj.tema.sub.forEach(function(name,i){
+    var s=el('div','node sub',esc(name));
+    var info={t:obj.tema.t+' · '+name,d:'Información sobre «'+name+'». Edita este texto en el arreglo TEMAS.',sub:[]};
+    s.onclick=function(ev){ ev.stopPropagation(); openWin(info); };
+    stage.appendChild(s);
+    var ang=base+(i-(n-1)/2)*0.7;
+    var so={el:s,parent:obj,angle:ang,dist:Math.min(innerWidth,innerHeight)*0.22};
+    obj.subs.push(so); subNodes.push(so);
+  });
+  layout();
+}
+function closeSubs(){
+  subNodes.forEach(function(s){ s.el.remove(); });
+  subNodes=[]; nodes.forEach(function(n){ n.open=false; n.subs=[]; });
+  layout();
+}
+
+function openWin(t){
+  var w=el('div','win');
+  var list=(t.sub&&t.sub.length)?'<ul>'+t.sub.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ul>':'';
+  w.innerHTML='<button class="btn close">✕</button><h2>'+(t.e||'')+' '+esc(t.t)+'</h2><p>'+esc(t.d)+'</p>'+list;
+  w.querySelector('.close').onclick=function(){ w.remove(); wins=wins.filter(function(x){return x!==w;}); };
+  document.body.appendChild(w); wins.push(w);
+}
+function closeAll(){ wins.forEach(function(w){w.remove();}); wins=[]; closeSubs(); }
+
+/* Barra */
+document.getElementById('bTemas').onclick=function(){ nodes.forEach(function(n){ if(!n.open) toggleSubs(n); }); };
+document.getElementById('bCentrar').onclick=function(){ mapX=mapY=0; layout(); };
+document.getElementById('bCerrar').onclick=closeAll;
+document.getElementById('bNotas').onclick=function(){
+  var w=el('div','win','<button class="btn close">✕</button><h2>⌨ Notas</h2><textarea id="notes" placeholder="Escribe tus notas..."></textarea>'+
+    '<div style="margin-top:8px"><button class="btn" id="bKb">Teclado virtual</button></div>');
+  document.body.appendChild(w); wins.push(w);
+  var ta=w.querySelector('#notes');
+  try{ ta.value=localStorage.getItem('gdv-notes')||''; }catch(e){}
+  ta.oninput=function(){ try{localStorage.setItem('gdv-notes',ta.value);}catch(e){} };
+  w.querySelector('.close').onclick=function(){ w.remove(); wins=wins.filter(function(x){return x!==w;}); hideKb(); };
+  w.querySelector('#bKb').onclick=function(){ showKb(ta); };
+};
+
+/* Teclado virtual */
+var kb=document.getElementById('kb'), kbTarget=null;
+function showKb(ta){
+  kbTarget=ta; kb.innerHTML=''; kb.style.display='block';
+  var rows=['1234567890','qwertyuiop','asdfghjklñ','zxcvbnm'];
+  rows.forEach(function(r){
+    var row=el('div','row');
+    r.split('').forEach(function(ch){ var k=el('div','k',ch); k.onclick=function(){ kbTarget.value+=ch; kbTarget.dispatchEvent(new Event('input')); }; row.appendChild(k); });
+    kb.appendChild(row);
+  });
+  var last=el('div','row');
+  [['Espacio',' '],['⌫','BK'],['Cerrar','CL']].forEach(function(p){
+    var k=el('div','k',p[0]); k.style.minWidth=p[0]==='Espacio'?'160px':'70px';
+    k.onclick=function(){
+      if(p[1]==='BK') kbTarget.value=kbTarget.value.slice(0,-1);
+      else if(p[1]==='CL'){ hideKb(); return; }
+      else kbTarget.value+=p[1];
+      kbTarget.dispatchEvent(new Event('input'));
+    };
+    last.appendChild(k);
+  });
+  kb.appendChild(last);
+}
+function hideKb(){ kb.style.display='none'; }
+
+/* Arrastrar el mapa con el dedo/ratón sobre el fondo */
+(function(){
+  var drag=false,sx=0,sy=0,ox=0,oy=0;
+  stage.addEventListener('pointerdown',function(e){ if(e.target!==stage&&e.target!==svg) return; drag=true;sx=e.clientX;sy=e.clientY;ox=mapX;oy=mapY; });
+  addEventListener('pointermove',function(e){ if(!drag) return; mapX=ox+e.clientX-sx; mapY=oy+e.clientY-sy; layout(); });
+  addEventListener('pointerup',function(){ drag=false; });
+})();
+addEventListener('resize',layout);
+layout();
+
+/* Intro */
+document.getElementById('start').onclick=function(){ document.getElementById('intro').remove(); };
+
+/* ===================== DETECCIÓN DE MANO ===================== */
+(function () {
+  'use strict';
+  var CFG = { pinchOn:0.32, pinchOff:0.48, smooth:0.35, lostMs:400,
+    clickable:'button, a, input, select, textarea, label, summary, [onclick], [role="button"], [tabindex], .node, .k, .btn' };
+  var HANDS_URL='https://cdn.jsdelivr.net/npm/@mediapipe/hands/';
+
+  var style=document.createElement('style');
+  style.textContent=
+    '#hs-cursor{position:fixed;left:0;top:0;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:3px solid #00e5ff;background:rgba(0,229,255,.18);pointer-events:none;z-index:2147483647;transition:transform .08s,background .08s,border-color .08s;display:none;box-shadow:0 0 12px #00e5ff}'+
+    '#hs-cursor.pinch{background:rgba(255,64,129,.5);border-color:#ff4081;box-shadow:0 0 14px #ff4081;transform:scale(.7)}'+
+    '.hs-hover{outline:3px solid #00e5ff !important;outline-offset:2px}'+
+    '#hs-cam{position:fixed;right:12px;bottom:12px;width:160px;height:120px;border-radius:12px;overflow:hidden;z-index:2147483646;background:#000;border:2px solid rgba(255,255,255,.35);pointer-events:none}'+
+    '#hs-cam video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}'+
+    '#hs-status{position:absolute;left:0;right:0;bottom:0;font:11px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.6);padding:2px 6px;text-align:center}';
+  document.head.appendChild(style);
+
+  var cursor=document.createElement('div'); cursor.id='hs-cursor'; document.body.appendChild(cursor);
+  var cam=document.createElement('div'); cam.id='hs-cam';
+  var video=document.createElement('video'); video.setAttribute('playsinline',''); video.muted=true;
+  var status=document.createElement('div'); status.id='hs-status'; status.textContent='Iniciando cámara...';
+  cam.appendChild(video); cam.appendChild(status); document.body.appendChild(cam);
+
+  var cx=0,cy=0,hasPos=false,pinching=false,downTarget=null,hovered=null,lastSeen=0;
+
+  function dist(a,b){var dx=a.x-b.x,dy=a.y-b.y;return Math.sqrt(dx*dx+dy*dy);}
+  function targetAt(x,y){var el=document.elementFromPoint(x,y);if(!el)return null;var c=el.closest?el.closest(CFG.clickable):null;return c||el;}
+  function setHover(el){
+    if(hovered===el)return;
+    if(hovered)hovered.classList.remove('hs-hover');
+    hovered=el;
+    if(hovered&&hovered!==document.body&&hovered!==document.documentElement&&hovered.id!=='stage')hovered.classList.add('hs-hover');
+  }
+  function fire(el,type,x,y,buttons){
+    if(!el)return;
+    var o={bubbles:true,cancelable:true,view:window,clientX:x,clientY:y,button:0,buttons:buttons||0,pointerId:1,pointerType:'mouse',isPrimary:true};
+    var ev=(type.indexOf('pointer')===0&&window.PointerEvent)?new PointerEvent(type,o):new MouseEvent(type,o);
+    el.dispatchEvent(ev);
+  }
+  function pinchStart(){
+    pinching=true;cursor.classList.add('pinch');
+    downTarget=targetAt(cx,cy);
+    fire(downTarget,'pointerdown',cx,cy,1);fire(downTarget,'mousedown',cx,cy,1);
+    if(downTarget&&downTarget.focus){try{downTarget.focus({preventScroll:true});}catch(e){}}
+  }
+  function pinchMove(){var t=downTarget||targetAt(cx,cy);fire(t,'pointermove',cx,cy,1);fire(t,'mousemove',cx,cy,1);}
+  function pinchEnd(){
+    pinching=false;cursor.classList.remove('pinch');
+    var up=targetAt(cx,cy);
+    fire(up,'pointerup',cx,cy,0);fire(up,'mouseup',cx,cy,0);
+    if(downTarget&&up&&(up===downTarget||downTarget.contains(up)||up.contains(downTarget))){
+      if(downTarget.click)downTarget.click();else fire(downTarget,'click',cx,cy,0);
+    }
+    downTarget=null;
+  }
+  function onResults(res){
+    var lm=res.multiHandLandmarks&&res.multiHandLandmarks[0], now=performance.now();
+    if(!lm){
+      status.textContent='Esperando índice...';
+      if(now-lastSeen>CFG.lostMs){cursor.style.display='none';setHover(null);if(pinching)pinchEnd();hasPos=false;}
+      return;
+    }
+    lastSeen=now;
+    var tip=lm[8],thumb=lm[4],size=dist(lm[0],lm[9])||0.0001,ratio=dist(thumb,tip)/size;
+    var tx=(1-tip.x)*innerWidth,ty=tip.y*innerHeight;
+    if(!hasPos){cx=tx;cy=ty;hasPos=true;}else{cx+=(tx-cx)*CFG.smooth;cy+=(ty-cy)*CFG.smooth;}
+    cursor.style.display='block';cursor.style.left=cx+'px';cursor.style.top=cy+'px';
+    if(!pinching)setHover(targetAt(cx,cy));
+    if(!pinching&&ratio<CFG.pinchOn)pinchStart();
+    else if(pinching&&ratio>CFG.pinchOff)pinchEnd();
+    else if(pinching)pinchMove();
+    status.textContent=pinching?'Pellizco ✔':'Mano detectada';
+  }
+  function loadScript(src){return new Promise(function(ok,fail){var s=document.createElement('script');s.src=src;s.crossOrigin='anonymous';s.onload=ok;s.onerror=function(){fail(new Error('No se pudo cargar '+src));};document.head.appendChild(s);});}
+
+  function startHands(){
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){status.textContent='Cámara no disponible (usa HTTPS)';return;}
+    loadScript(HANDS_URL+'hands.js').then(function(){
+      var hands=new window.Hands({locateFile:function(f){return HANDS_URL+f;}});
+      hands.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:0.6,minTrackingConfidence:0.6});
+      hands.onResults(onResults);
+      return navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'},audio:false})
+        .then(function(stream){video.srcObject=stream;return video.play();})
+        .then(function(){
+          status.textContent='Esperando índice...';
+          var busy=false;
+          (function loop(){
+            if(!busy&&video.readyState>=2){busy=true;hands.send({image:video}).then(function(){busy=false;},function(){busy=false;});}
+            requestAnimationFrame(loop);
+          })();
+        });
+    }).catch(function(e){status.textContent='Error: '+(e&&e.message?e.message:e);});
+  }
+  startHands();
+})();
+</script>
+</body>
+</html>
